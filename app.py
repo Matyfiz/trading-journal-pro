@@ -106,7 +106,7 @@ def get_sheets_client():
         st.error(f"❌ Szczegóły błędu technicznego: {e}")
         return None
 
-# --- FUNKCJA ODCZYTU DANYCH (Z POPRAWKĄ NA PRZECINKI) ---
+# --- FUNKCJA ODCZYTU DANYCH (FIX NUMERYCZNY) ---
 @st.cache_data(ttl=30) 
 def get_trades_from_gsheet():
     client = get_sheets_client()
@@ -115,23 +115,34 @@ def get_trades_from_gsheet():
     try:
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1') 
-        data = sheet.get_all_records()
+        
+        # 1. FIX: Pobierz UNFORMATTED_VALUE (dostajemy surowe liczby float od Google, nawet jak w arkuszu są przecinki)
+        data = sheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(data)
         
         if df.empty or 'id' not in df.columns:
             empty_cols = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             return pd.DataFrame(columns=empty_cols)
         
-        # --- FIX: Konwersja kolumn liczbowych z przecinkami na kropki (DLA ODCZYTU) ---
+        # 2. FIX: Pancerne czyszczenie liczb (na wypadek gdyby Google jednak zwróciło stringi)
         numeric_cols = ['entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'pnl', 'r_multiple']
+        
+        def robust_convert(x):
+            if isinstance(x, (int, float)): return float(x)
+            if isinstance(x, str):
+                # Zamiana przecinka na kropkę, usunięcie spacji
+                x = x.replace(',', '.').replace(' ', '')
+                # Usunięcie symboli walut jeśli się zaplątały
+                x = re.sub(r'[^\d.-]', '', x)
+                try: return float(x)
+                except: return 0.0
+            return 0.0
+
         for col in numeric_cols:
             if col in df.columns:
-                # Zamień przecinek na kropkę w stringu, usuń ewentualne spacje i inne znaki
-                df[col] = df[col].astype(str).str.replace(',', '.', regex=False).str.replace(' ', '', regex=False)
-                # Wymuś konwersję na liczbę, błędy zamień na 0.0
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-        # --- END FIX ---
+                df[col] = df[col].apply(robust_convert)
 
+        # Daty
         df['date_dt'] = pd.to_datetime(df['date'], errors='coerce')
         df['entry_dt'] = pd.to_datetime(df['entry_date'], errors='coerce')
         df = df.dropna(subset=['date_dt'])
@@ -158,6 +169,11 @@ def add_trade_to_gsheet(data, current_df):
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1')
     
+        # Sprawdź czy arkusz jest pusty (brak nagłówków) - jeśli tak, dodaj je
+        if sheet.row_count < 1 or not sheet.row_values(1):
+            cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
+            sheet.append_row(cols_to_keep)
+
         is_duplicate = current_df[
             (current_df['date'] == data['date']) &
             (current_df['symbol'] == data['symbol']) &
@@ -172,15 +188,8 @@ def add_trade_to_gsheet(data, current_df):
         
         cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
         
-        # Konwersja float na string z kropką (żeby Google Sheets zrozumiał to jako liczbę w standardzie US/API)
-        # Arkusz sam sobie wyświetli przecinek jeśli masz polskie ustawienia, ale API woli kropki.
-        row_data = []
-        for col in cols_to_keep:
-            val = data.get(col, '')
-            if isinstance(val, float):
-                row_data.append(str(val).replace('.', ',')) # Zapisujemy z przecinkiem, bo tak masz ustawiony arkusz
-            else:
-                row_data.append(val)
+        # FIX: Wysyłamy czyste dane (floats), Google samo sformatuje wyświetlanie (przecinki)
+        row_data = [data.get(col, '') for col in cols_to_keep]
 
         sheet.append_row(row_data, value_input_option='USER_ENTERED')
         
