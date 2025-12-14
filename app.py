@@ -47,8 +47,12 @@ st.markdown("""
         .card-title { color: var(--text-sub); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
         .card-val { font-size: 1.5rem; font-weight: 800; font-family: 'Courier New', monospace; margin-bottom: 4px; }
         
-        /* FIX: Mniejsza czcionka w kafelkach kalendarza */
-        .tile-grid .card-val { font-size: 1.1rem !important; } 
+        /* FIX: Skalowanie tekstu w kafelkach kalendarza */
+        .tile-grid .card-val { 
+            font-size: 1.0rem !important; /* Mniejsza czcionka bazowa */
+            white-space: nowrap;          /* ZAKAZ ZAWIJANIA TEKSTU */
+            overflow: visible;            /* Nie ucinaj, niech wystaje ewentualnie */
+        } 
 
         .val-up { color: var(--neon-green); } .val-down { color: var(--neon-red); }
         
@@ -239,7 +243,7 @@ def get_date_range(preset):
     return None, None
 
 # --- RENDERERY ---
-def render_card(title, value, sub="", is_curr=True):
+def render_card(title, value, sub="", is_curr=True, do_round=False):
     val_num = float(value) if isinstance(value, (int, float)) else 0
     if isinstance(value, str):
         try: val_num = float(value.replace('$','').replace('%',''))
@@ -251,14 +255,19 @@ def render_card(title, value, sub="", is_curr=True):
     elif is_curr:
         if val_num > 0: cls = "val-up"
         elif val_num < 0: cls = "val-down"
-    val_str = f"{val_num:+.2f}$" if is_curr and isinstance(value, (int, float)) else str(value)
+    
+    # FIX: Zaokrąglanie w kalendarzu do pełnych $
+    if do_round and is_curr and isinstance(val_num, (int, float)):
+        val_str = f"{val_num:+.0f}$"
+    else:
+        val_str = f"{val_num:+.2f}$" if is_curr and isinstance(value, (int, float)) else str(value)
+        
     return f'<div class="custom-card"><div class="card-title">{title}</div><div class="card-val {cls}">{val_str}</div><div class="card-sub">{sub}</div></div>'
 
 def render_day_tile(day, pnl, count):
     if day == 0: return '<div class="day-card" style="border:none; background:transparent"></div>'
     cls = "val-up" if pnl > 0 else "val-down" if pnl < 0 else "val-neutral"
     
-    # FIX: Dodanie $ i trd
     pnl_s = f"{pnl:+.0f}$" if count > 0 else "-"
     cnt_s = f"{int(count)} trd" if count > 0 else ""
     
@@ -278,7 +287,7 @@ def render_calendar_grid(df, year, month):
                 html += render_day_tile(day, s, c)
             else: html += render_day_tile(day, 0, 0)
         w_cls = "val-up" if w_sum > 0 else "val-down" if w_sum < 0 else "val-neutral"
-        html += f'<div class="week-summary"><div style="font-size:0.6rem; color:#888;">TYDZIEŃ</div><div class="{w_cls}" style="font-weight:bold; font-family:monospace;">{w_sum:+.0f}</div></div>'
+        html += f'<div class="week-summary"><div style="font-size:0.6rem; color:#888;">TYDZIEŃ</div><div class="{w_cls}" style="font-weight:bold; font-family:monospace;">{w_sum:+.0f}$</div></div>'
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -286,21 +295,21 @@ def render_tiles_grid(df, mode, year=None):
     html = '<div class="tile-grid">'
     if mode == "Lata":
         stats = df.groupby('year_int').agg({'pnl': 'sum', 'id': 'count'}).sort_index(ascending=False)
-        for y, r in stats.iterrows(): html += render_card(f"Rok {y}", r['pnl'], f"{r['id']} trd")
+        for y, r in stats.iterrows(): html += render_card(f"Rok {y}", r['pnl'], f"{r['id']} trd", do_round=True)
     elif mode == "Rok":
         df_y = df[df['year_int'] == year]
         stats = df_y.groupby('month_int').agg({'pnl': 'sum', 'id': 'count'}) if not df_y.empty else pd.DataFrame()
         for m in range(1, 13):
             name = POLISH_MONTHS[m]
-            if not stats.empty and m in stats.index: html += render_card(name, stats.loc[m]['pnl'], f"{stats.loc[m]['id']} trd")
-            else: html += render_card(name, 0, "-", True)
+            if not stats.empty and m in stats.index: html += render_card(name, stats.loc[m]['pnl'], f"{stats.loc[m]['id']} trd", do_round=True)
+            else: html += render_card(name, 0, "-", True, do_round=True)
     elif mode == "Tygodnie":
         df_y = df[df['year_int'] == year]
         last_w = date(year, 12, 28).isocalendar().week
         stats = df_y.groupby(df_y['date_dt'].dt.isocalendar().week).agg({'pnl': 'sum', 'id': 'count'}) if not df_y.empty else pd.DataFrame()
         for w in range(1, last_w + 1):
-            if not stats.empty and w in stats.index: html += render_card(f"Tydz {w}", stats.loc[w]['pnl'], f"{stats.loc[w]['id']} trd")
-            else: html += render_card(f"Tydz {w}", 0, "-", True)
+            if not stats.empty and w in stats.index: html += render_card(f"Tydz {w}", stats.loc[w]['pnl'], f"{stats.loc[w]['id']} trd", do_round=True)
+            else: html += render_card(f"Tydz {w}", 0, "-", True, do_round=True)
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -552,7 +561,7 @@ def main():
                 df_s = df_f.sort_values('date_dt')
                 if metric_type == "Krzywa Kapitału":
                     df_s['cum'] = df_s['pnl'].cumsum()
-                    # FIX: Skopiowana logika kolorów z Dashboardu
+                    # FIX: Inteligentny gradient (zielony/czerwony) dla Statystyk
                     min_y = df_s['cum'].min(); max_y = df_s['cum'].max()
                     area_stops = []; line_stops = []
                     if min_y >= 0:
