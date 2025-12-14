@@ -56,7 +56,7 @@ st.markdown("""
         .trade-table-row { display: grid; grid-template-columns: 0.9fr 0.9fr 0.7fr 0.8fr 0.8fr 1fr 1fr 0.9fr 1fr 0.7fr; padding: 10px 10px; border-bottom: 1px solid var(--border); align-items: center; transition: background-color 0.1s; }
         .trade-table-row:hover { background-color: rgba(48, 54, 61, 0.2); }
         
-        /* Badges (Poprawione) */
+        /* Badges */
         .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; text-align: center; min-width: 60px; }
         .badge-long { background-color: var(--badge-long-bg); color: var(--badge-long-text); border: 1px solid rgba(46, 160, 67, 0.3); }
         .badge-short { background-color: var(--badge-short-bg); color: var(--badge-short-text); border: 1px solid rgba(218, 54, 51, 0.3); }
@@ -65,7 +65,7 @@ st.markdown("""
         .col-pnl { font-family: 'Courier New', monospace; font-weight: 800; display: flex; align-items: center; gap: 4px; }
         .pnl-green { color: var(--neon-green); } .pnl-red { color: var(--neon-red); }
         
-        /* Kalendarz (NAPRAWIONY GRID) */
+        /* Kalendarz */
         .calendar-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 10px; }
         .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 10px; }
         .grid-header { text-align: center; font-size: 0.7rem; color: var(--text-sub); padding-bottom: 5px; font-weight: bold; text-transform: uppercase; }
@@ -90,27 +90,23 @@ st.markdown("""
 # --- 2. LOGIKA I BAZA DANYCH (INTEGRACJA GOOGLE SHEETS) ---
 POLISH_MONTHS = {1: 'Styczeń', 2: 'Luty', 3: 'Marzec', 4: 'Kwiecień', 5: 'Maj', 6: 'Czerwiec', 7: 'Lipiec', 8: 'Sierpień', 9: 'Wrzesień', 10: 'Październik', 11: 'Listopad', 12: 'Grudzień'}
 
-# --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS (POPRAWIONA) ---
+# --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS ---
 @st.cache_resource(ttl=3600) 
 def get_sheets_client():
     try:
-        # Pobieramy sekrety jako słownik
         creds_json = dict(st.secrets["gcp_service_account"])
-        
-        # 1. FIX: Naprawa znaków nowej linii (najczęstsza przyczyna błędu w Streamlit)
+        # Naprawa formatu klucza
         if "private_key" in creds_json:
             creds_json["private_key"] = creds_json["private_key"].replace("\\n", "\n")
 
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
         credentials = Credentials.from_service_account_info(creds_json, scopes=scopes)
         return gspread.authorize(credentials)
-        
     except Exception as e:
-        # 2. FIX: Wyświetlamy PRAWDZIWY błąd zamiast ogólnego komunikatu
         st.error(f"❌ Szczegóły błędu technicznego: {e}")
         return None
 
-# --- FUNKCJA ODCZYTU DANYCH (ZAMIAST get_trades) ---
+# --- FUNKCJA ODCZYTU DANYCH (Z POPRAWKĄ NA PRZECINKI) ---
 @st.cache_data(ttl=30) 
 def get_trades_from_gsheet():
     client = get_sheets_client()
@@ -123,11 +119,19 @@ def get_trades_from_gsheet():
         df = pd.DataFrame(data)
         
         if df.empty or 'id' not in df.columns:
-            # Zapewnia, że pusta tabela ma właściwe kolumny
             empty_cols = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             return pd.DataFrame(columns=empty_cols)
-            
-        # Konwersja dat i dodanie kolumn analitycznych
+        
+        # --- FIX: Konwersja kolumn liczbowych z przecinkami na kropki (DLA ODCZYTU) ---
+        numeric_cols = ['entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'pnl', 'r_multiple']
+        for col in numeric_cols:
+            if col in df.columns:
+                # Zamień przecinek na kropkę w stringu, usuń ewentualne spacje i inne znaki
+                df[col] = df[col].astype(str).str.replace(',', '.', regex=False).str.replace(' ', '', regex=False)
+                # Wymuś konwersję na liczbę, błędy zamień na 0.0
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+        # --- END FIX ---
+
         df['date_dt'] = pd.to_datetime(df['date'], errors='coerce')
         df['entry_dt'] = pd.to_datetime(df['entry_date'], errors='coerce')
         df = df.dropna(subset=['date_dt'])
@@ -154,7 +158,6 @@ def add_trade_to_gsheet(data, current_df):
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1')
     
-        # 1. Anty-Duplikat
         is_duplicate = current_df[
             (current_df['date'] == data['date']) &
             (current_df['symbol'] == data['symbol']) &
@@ -164,16 +167,22 @@ def add_trade_to_gsheet(data, current_df):
         
         if is_duplicate: return False
 
-        # 2. Ustalenie nowego ID
         max_id = current_df['id'].max() if not current_df.empty and 'id' in current_df.columns else 0
         data['id'] = max_id + 1
         
-        # 3. Przygotowanie wiersza
         cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
-        new_row = [data.get(col, '') for col in cols_to_keep]
+        
+        # Konwersja float na string z kropką (żeby Google Sheets zrozumiał to jako liczbę w standardzie US/API)
+        # Arkusz sam sobie wyświetli przecinek jeśli masz polskie ustawienia, ale API woli kropki.
+        row_data = []
+        for col in cols_to_keep:
+            val = data.get(col, '')
+            if isinstance(val, float):
+                row_data.append(str(val).replace('.', ',')) # Zapisujemy z przecinkiem, bo tak masz ustawiony arkusz
+            else:
+                row_data.append(val)
 
-        # 4. Zapis
-        sheet.append_row(new_row, value_input_option='USER_ENTERED')
+        sheet.append_row(row_data, value_input_option='USER_ENTERED')
         
         st.cache_data.clear()
         return True
@@ -181,7 +190,6 @@ def add_trade_to_gsheet(data, current_df):
         st.error(f"Błąd zapisu do Google Sheets: {e}")
         return False
     
-# Zastąpienie starych funkcji nowymi
 get_trades = get_trades_from_gsheet
 add_trade_to_db = add_trade_to_gsheet
 
@@ -285,7 +293,6 @@ def render_html_table(df):
         roi_class = "pnl-green" if roi > 0 else "pnl-red" if roi < 0 else ""
         direction = row['direction']
         
-        # FIX: Zastosowanie klasy .badge wewnątrz kontenera
         badge_class = "badge-long" if direction == "Long" else "badge-short"
         
         hours = row['hold_hours']
@@ -294,7 +301,6 @@ def render_html_table(df):
         else: h = int(hours); m = int((hours - h) * 60); time_str = f"{h}h {m}m"
         date_str = row['date_dt'].strftime('%d.%m.%Y')
         
-        # HTML z poprawionymi klasami
         html += f'<div class="trade-table-row"><div class="col-date">{date_str}</div><div class="col-symbol">{row["symbol"]}</div><div><span class="badge {badge_class}">{direction}</span></div><div class="col-num">{row["entry_price"]:.4f}</div><div class="col-num">{row["exit_price"]:.4f}</div><div class="col-val">${entry_val:,.0f}</div><div class="col-val">${exit_val:,.0f}</div><div><span class="badge-time">{time_str}</span></div><div class="col-pnl {pnl_class}"><span>{icon}</span>{pnl:+.2f}$</div><div class="{roi_class}" style="font-weight:700; font-family:monospace;">{roi:+.2f}%</div></div>'
     html += '</div>'
     return html
@@ -321,12 +327,11 @@ def render_position_visualizer(entry, sl, tp, direction):
     html = f"""<div style="display:flex; justify-content:center; align-items:center; height:100%;"><div class="visual-bar-container"><div class="visual-segment {class_top}" style="height: {pct_top}%;"><div class="price-label" style="color: {color_top};">{label_top}</div></div><div class="entry-line" style="top: {pct_top}%;"><div class="price-label" style="color: white; top:-8px;">Entry: {entry}</div></div><div class="visual-segment {class_bottom}" style="height: {pct_bottom}%;"><div class="price-label" style="color: {color_bottom};">{label_bottom}</div></div></div></div>"""
     return html
 
-# --- NOWA FUNKCJA IMPORTU (REGEX + SIEROTY) ---
+# --- PARSER CSV (REGEX + SIEROTY) ---
 def parse_exchange_csv_final(uploaded_file):
     try:
         df = pd.read_csv(uploaded_file)
         
-        # 1. Robust Number Cleaner (Regex)
         def clean_num(x):
             if pd.isna(x): return 0.0
             s = str(x)
@@ -633,7 +638,6 @@ def main():
             if mode == "Miesiąc (Dni)":
                 now = datetime.now()
                 c_m, _ = st.columns([1,3])
-                # FIX: Użyj datetime.now().month jako default, chyba że brak danych
                 sel_m = c_m.selectbox("Miesiąc", range(1,13), index=now.month-1, format_func=lambda x: POLISH_MONTHS[x])
                 render_calendar_grid(df, sel_yr, sel_m)
             else:
