@@ -15,7 +15,6 @@ st.set_page_config(page_title="Trader PRO", layout="wide", initial_sidebar_state
 
 st.markdown("""
     <style>
-        /* [STYLY CSS POZOSTAJĄ BEZ ZMIAN] */
         :root {
             --bg-dark: #0d1117; --bg-card: #161b22; --border: #30363d; --text-main: #e6edf3; --text-sub: #8b949e; 
             --neon-green: #2ea043; --neon-red: #da3633; --accent: #1f6feb;
@@ -67,7 +66,7 @@ st.markdown("""
 # --- 2. LOGIKA I BAZA DANYCH (INTEGRACJA GOOGLE SHEETS) ---
 POLISH_MONTHS = {1: 'Styczeń', 2: 'Luty', 3: 'Marzec', 4: 'Kwiecień', 5: 'Maj', 6: 'Czerwiec', 7: 'Lipiec', 8: 'Sierpień', 9: 'Wrzesień', 10: 'Październik', 11: 'Listopad', 12: 'Grudzień'}
 
-# --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS (CACHE) ---
+# --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS (POPRAWIONA) ---
 @st.cache_resource(ttl=3600) 
 def get_sheets_client():
     try:
@@ -119,7 +118,7 @@ def get_trades_from_gsheet():
         return df
 
     except Exception as e:
-        st.error(f"Błąd odczytu Arkusza Google: Upewnij się, że ID arkusza jest poprawne i ma nagłówki.")
+        st.error(f"Błąd odczytu Arkusza Google: {e}")
         return pd.DataFrame()
 
 # --- FUNKCJA ZAPISU DO GOOGLE SHEETS (ZAMIAST add_trade_to_db) ---
@@ -294,7 +293,7 @@ def render_position_visualizer(entry, sl, tp, direction):
     return html
 
 def parse_exchange_csv_final(uploaded_file):
-    # [Funkcja importu CSV pozostaje bez zmian]
+    # [Funkcja importu CSV]
     try:
         df = pd.read_csv(uploaded_file)
         def clean_num(x): return float(x.replace(' USDT', '').replace(' SOL', '').replace(',', '.')) if isinstance(x, str) else float(x)
@@ -585,8 +584,7 @@ def main():
                         n=0
                         for _,r in imp.iterrows(): 
                             data_to_add = r.to_dict()
-                            data_to_add['date'] = data_to_add['date'].strftime('%Y-%m-%d %H:%M:%S')
-                            data_to_add['entry_date'] = data_to_add['entry_date'].strftime('%Y-%m-%d %H:%M:%S')
+                            # USUNIĘTE: Błędne ponowne formatowanie daty
                             
                             if add_trade_to_gsheet(data_to_add, current_df): n+=1
                         
@@ -598,5 +596,4 @@ def main():
             st.warning("Funkcje usuwania pozycji i czyszczenia bazy są wyłączone w trybie Google Sheets. Aby usunąć pozycję, musisz zrobić to ręcznie w Arkuszu Google.")
 
 if __name__ == "__main__":
-
     main()
