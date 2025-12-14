@@ -70,14 +70,21 @@ POLISH_MONTHS = {1: 'Styczeń', 2: 'Luty', 3: 'Marzec', 4: 'Kwiecień', 5: 'Maj'
 # --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS (CACHE) ---
 @st.cache_resource(ttl=3600) 
 def get_sheets_client():
-    # Dane uwierzytelniające z Streamlit Secrets
     try:
-        creds_json = st.secrets["gcp_service_account"]
+        # Pobieramy sekrety jako słownik
+        creds_json = dict(st.secrets["gcp_service_account"])
+        
+        # 1. FIX: Naprawa znaków nowej linii (najczęstsza przyczyna błędu w Streamlit)
+        if "private_key" in creds_json:
+            creds_json["private_key"] = creds_json["private_key"].replace("\\n", "\n")
+
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
         credentials = Credentials.from_service_account_info(creds_json, scopes=scopes)
         return gspread.authorize(credentials)
+        
     except Exception as e:
-        st.error("Błąd uwierzytelniania Google Sheets. Sprawdź plik secrets.toml.")
+        # 2. FIX: Wyświetlamy PRAWDZIWY błąd zamiast ogólnego komunikatu
+        st.error(f"❌ Szczegóły błędu technicznego: {e}")
         return None
 
 # --- FUNKCJA ODCZYTU DANYCH (ZAMIAST get_trades) ---
@@ -591,4 +598,5 @@ def main():
             st.warning("Funkcje usuwania pozycji i czyszczenia bazy są wyłączone w trybie Google Sheets. Aby usunąć pozycję, musisz zrobić to ręcznie w Arkuszu Google.")
 
 if __name__ == "__main__":
+
     main()
