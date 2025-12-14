@@ -3,6 +3,7 @@ import pandas as pd
 import calendar
 import time
 import os
+import re
 from datetime import datetime, date, timedelta
 import altair as alt
 
@@ -18,11 +19,13 @@ st.markdown("""
         :root {
             --bg-dark: #0d1117; --bg-card: #161b22; --border: #30363d; --text-main: #e6edf3; --text-sub: #8b949e; 
             --neon-green: #2ea043; --neon-red: #da3633; --accent: #1f6feb;
-            --badge-long-bg: rgba(46, 160, 67, 0.15); --badge-long-text: #3fb950;
-            --badge-short-bg: rgba(218, 54, 51, 0.15); --badge-short-text: #f85149;
+            --badge-long-bg: rgba(46, 160, 67, 0.2); --badge-long-text: #3fb950;
+            --badge-short-bg: rgba(218, 54, 51, 0.2); --badge-short-text: #f85149;
             --badge-time-bg: rgba(56, 139, 253, 0.15); --badge-time-text: #58a6ff;
         }
         .stApp { background-color: var(--bg-dark); color: var(--text-main); }
+        
+        /* Sidebar fix */
         section[data-testid="stSidebar"] { background-color: #010409; border-right: 1px solid var(--border); }
         [data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child { display: none !important; }
         [data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"] > label {
@@ -39,26 +42,47 @@ st.markdown("""
             background: linear-gradient(90deg, rgba(31, 111, 235, 0.25) 0%, rgba(31, 111, 235, 0.0) 90%);
             border-left: 3px solid var(--accent); color: white; font-weight: 600; filter: grayscale(0%) opacity(1);
         }
+
+        /* Karty */
         .custom-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 15px; text-align: center; height: 100%; transition: transform 0.2s; }
         .custom-card:hover { transform: translateY(-3px); border-color: var(--accent); }
         .card-title { color: var(--text-sub); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
         .card-val { font-size: 1.5rem; font-weight: 800; font-family: 'Courier New', monospace; margin-bottom: 4px; }
         .val-up { color: var(--neon-green); } .val-down { color: var(--neon-red); }
+        
+        /* Tabela transakcji */
         .trade-table-container { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 0.85rem; margin-top: 10px; }
         .trade-table-header { display: grid; grid-template-columns: 0.9fr 0.9fr 0.7fr 0.8fr 0.8fr 1fr 1fr 0.9fr 1fr 0.7fr; padding: 12px 10px; background-color: rgba(48, 54, 61, 0.3); color: var(--text-sub); font-weight: 700; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); }
         .trade-table-row { display: grid; grid-template-columns: 0.9fr 0.9fr 0.7fr 0.8fr 0.8fr 1fr 1fr 0.9fr 1fr 0.7fr; padding: 10px 10px; border-bottom: 1px solid var(--border); align-items: center; transition: background-color 0.1s; }
         .trade-table-row:hover { background-color: rgba(48, 54, 61, 0.2); }
+        
+        /* Badges (Poprawione) */
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; text-align: center; min-width: 60px; }
+        .badge-long { background-color: var(--badge-long-bg); color: var(--badge-long-text); border: 1px solid rgba(46, 160, 67, 0.3); }
+        .badge-short { background-color: var(--badge-short-bg); color: var(--badge-short-text); border: 1px solid rgba(218, 54, 51, 0.3); }
+        .badge-time { background-color: var(--badge-time-bg); color: var(--badge-time-text); border: 1px solid rgba(88, 166, 255, 0.3); padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; text-align: center; display: inline-block; min-width: 60px; }
+        
         .col-pnl { font-family: 'Courier New', monospace; font-weight: 800; display: flex; align-items: center; gap: 4px; }
         .pnl-green { color: var(--neon-green); } .pnl-red { color: var(--neon-red); }
-        .badge-long { background-color: var(--badge-long-bg); color: var(--badge-long-text); border: 1px solid var(--badge-long-text); }
-        .badge-short { background-color: var(--badge-short-bg); color: var(--badge-short-text); border: 1px solid var(--badge-short-text); }
-        .badge-time { background-color: var(--badge-time-bg); color: var(--badge-time-text); border: 1px solid var(--badge-time-text); padding: 3px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; text-align: center; display: inline-block; min-width: 60px; }
+        
+        /* Kalendarz (NAPRAWIONY GRID) */
+        .calendar-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 10px; }
+        .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 10px; }
+        .grid-header { text-align: center; font-size: 0.7rem; color: var(--text-sub); padding-bottom: 5px; font-weight: bold; text-transform: uppercase; }
+        .day-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px; min-height: 80px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s; }
+        .day-card:hover { border-color: var(--accent); }
+        .day-num { font-size: 0.8rem; font-weight: bold; color: var(--text-sub); }
+        .day-val { font-size: 0.9rem; font-weight: 800; font-family: 'Courier New', monospace; text-align: right; }
+        .week-summary { background-color: rgba(31, 111, 235, 0.1); border: 1px solid rgba(31, 111, 235, 0.3); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+
+        /* Wizualizacja pozycji */
         .visual-bar-container { height: 300px; width: 60px; background-color: #0d1117; border: 1px solid var(--border); border-radius: 4px; position: relative; display: flex; flex-direction: column; margin: 0 auto; }
         .visual-segment { width: 100%; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; position: relative; }
         .visual-profit { background-color: var(--neon-green); opacity: 0.2; border: 1px solid var(--neon-green); }
         .visual-loss { background-color: var(--neon-red); opacity: 0.2; border: 1px solid var(--neon-red); }
         .price-label { position: absolute; left: 70px; font-size: 12px; white-space: nowrap; font-family: 'Courier New', monospace; font-weight: bold; }
         .entry-line { height: 2px; background-color: #fff; width: 80px; position: absolute; left: -10px; z-index: 10; }
+        
         canvas { filter: none !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -103,7 +127,7 @@ def get_trades_from_gsheet():
             empty_cols = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             return pd.DataFrame(columns=empty_cols)
             
-        # Konwersja dat i dodanie kolumn analitycznych (JAK WCZEŚNIEJ)
+        # Konwersja dat i dodanie kolumn analitycznych
         df['date_dt'] = pd.to_datetime(df['date'], errors='coerce')
         df['entry_dt'] = pd.to_datetime(df['entry_date'], errors='coerce')
         df = df.dropna(subset=['date_dt'])
@@ -121,7 +145,7 @@ def get_trades_from_gsheet():
         st.error(f"Błąd odczytu Arkusza Google: {e}")
         return pd.DataFrame()
 
-# --- FUNKCJA ZAPISU DO GOOGLE SHEETS (ZAMIAST add_trade_to_db) ---
+# --- FUNKCJA ZAPISU DO GOOGLE SHEETS ---
 def add_trade_to_gsheet(data, current_df):
     client = get_sheets_client()
     if client is None: return False
@@ -130,7 +154,7 @@ def add_trade_to_gsheet(data, current_df):
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1')
     
-        # 1. Anty-Duplikat (dokładny czas, symbol, kierunek, pnl z tolerancją)
+        # 1. Anty-Duplikat
         is_duplicate = current_df[
             (current_df['date'] == data['date']) &
             (current_df['symbol'] == data['symbol']) &
@@ -144,14 +168,14 @@ def add_trade_to_gsheet(data, current_df):
         max_id = current_df['id'].max() if not current_df.empty and 'id' in current_df.columns else 0
         data['id'] = max_id + 1
         
-        # 3. Przygotowanie wiersza do dopisania (tylko kolumny źródłowe)
+        # 3. Przygotowanie wiersza
         cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
         new_row = [data.get(col, '') for col in cols_to_keep]
 
-        # 4. Zapis w nowym wierszu
+        # 4. Zapis
         sheet.append_row(new_row, value_input_option='USER_ENTERED')
         
-        st.cache_data.clear() # Wyczyść cache, żeby odświeżyć tabelę
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Błąd zapisu do Google Sheets: {e}")
@@ -161,7 +185,7 @@ def add_trade_to_gsheet(data, current_df):
 get_trades = get_trades_from_gsheet
 add_trade_to_db = add_trade_to_gsheet
 
-# --- POZOSTAŁA LOGIKA (BEZ ZMIAN) ---
+# --- POZOSTAŁA LOGIKA ---
 def calculate_streaks(df):
     if df.empty: return 0, 0
     df = df.sort_values('date_dt')
@@ -187,7 +211,7 @@ def get_date_range(preset):
     elif preset == "Obecny Rok": return today.replace(month=1, day=1), today
     return None, None
 
-# --- 3. RENDERERY HTML (BEZ ZMIAN) ---
+# --- 3. RENDERERY HTML ---
 def render_card(title, value, sub="", is_curr=True):
     val_num = float(value) if isinstance(value, (int, float)) else 0
     if isinstance(value, str):
@@ -260,12 +284,17 @@ def render_html_table(df):
         roi = (pnl / entry_val * 100) if entry_val > 0 else 0
         roi_class = "pnl-green" if roi > 0 else "pnl-red" if roi < 0 else ""
         direction = row['direction']
+        
+        # FIX: Zastosowanie klasy .badge wewnątrz kontenera
         badge_class = "badge-long" if direction == "Long" else "badge-short"
+        
         hours = row['hold_hours']
         if pd.isna(hours) or hours == 0: time_str = "-"
         elif hours < 1: time_str = f"{int(hours*60)}m"
         else: h = int(hours); m = int((hours - h) * 60); time_str = f"{h}h {m}m"
         date_str = row['date_dt'].strftime('%d.%m.%Y')
+        
+        # HTML z poprawionymi klasami
         html += f'<div class="trade-table-row"><div class="col-date">{date_str}</div><div class="col-symbol">{row["symbol"]}</div><div><span class="badge {badge_class}">{direction}</span></div><div class="col-num">{row["entry_price"]:.4f}</div><div class="col-num">{row["exit_price"]:.4f}</div><div class="col-val">${entry_val:,.0f}</div><div class="col-val">${exit_val:,.0f}</div><div><span class="badge-time">{time_str}</span></div><div class="col-pnl {pnl_class}"><span>{icon}</span>{pnl:+.2f}$</div><div class="{roi_class}" style="font-weight:700; font-family:monospace;">{roi:+.2f}%</div></div>'
     html += '</div>'
     return html
@@ -292,40 +321,104 @@ def render_position_visualizer(entry, sl, tp, direction):
     html = f"""<div style="display:flex; justify-content:center; align-items:center; height:100%;"><div class="visual-bar-container"><div class="visual-segment {class_top}" style="height: {pct_top}%;"><div class="price-label" style="color: {color_top};">{label_top}</div></div><div class="entry-line" style="top: {pct_top}%;"><div class="price-label" style="color: white; top:-8px;">Entry: {entry}</div></div><div class="visual-segment {class_bottom}" style="height: {pct_bottom}%;"><div class="price-label" style="color: {color_bottom};">{label_bottom}</div></div></div></div>"""
     return html
 
+# --- NOWA FUNKCJA IMPORTU (REGEX + SIEROTY) ---
 def parse_exchange_csv_final(uploaded_file):
-    # [Funkcja importu CSV]
     try:
         df = pd.read_csv(uploaded_file)
-        def clean_num(x): return float(x.replace(' USDT', '').replace(' SOL', '').replace(',', '.')) if isinstance(x, str) else float(x)
-        df['size_clean'] = df['Kwota'].apply(clean_num); df['price_clean'] = df['Cena zlecenia'].apply(clean_num)
-        df['fee_clean'] = df['Opłata'].apply(clean_num); df['pnl_gross'] = df['Zamknięty PNL'].apply(clean_num)
-        df['Czas'] = pd.to_datetime(df['Czas'])
-        df_grouped = df.groupby(['Czas', 'Kontrakty terminowe', 'Kierunek']).agg({'size_clean': 'sum', 'fee_clean': 'sum', 'pnl_gross': 'sum', 'price_clean': 'mean'}).reset_index().sort_values(by='Czas', ascending=True)
-        trades_to_import = []; open_positions = {}
+        
+        # 1. Robust Number Cleaner (Regex)
+        def clean_num(x):
+            if pd.isna(x): return 0.0
+            s = str(x)
+            s = s.replace(',', '.')
+            s = re.sub(r'[^\d.-]', '', s)
+            try: return float(s)
+            except: return 0.0
+
+        col_map = {}
+        for col in df.columns:
+            cl = col.lower()
+            if 'czas' in cl or 'time' in cl: col_map['date'] = col
+            elif 'kontrakt' in cl or 'symbol' in cl: col_map['symbol'] = col
+            elif 'kierunek' in cl or 'side' in cl: col_map['direction'] = col
+            elif 'kwota' in cl or 'qty' in cl or 'size' in cl: col_map['size'] = col
+            elif 'cena' in cl or 'price' in cl: col_map['price'] = col
+            elif 'opłata' in cl or 'fee' in cl: col_map['fee'] = col
+            elif 'pnl' in cl: col_map['pnl'] = col
+
+        required = ['date', 'symbol', 'direction', 'size', 'price', 'pnl']
+        if not all(k in col_map for k in required):
+            st.error("Nie rozpoznano struktury pliku CSV. Sprawdź nagłówki.")
+            return pd.DataFrame()
+
+        df['size_c'] = df[col_map['size']].apply(clean_num)
+        df['price_c'] = df[col_map['price']].apply(clean_num)
+        df['fee_c'] = df[col_map['fee']].apply(clean_num)
+        df['pnl_c'] = df[col_map['pnl']].apply(clean_num)
+        df['dt'] = pd.to_datetime(df[col_map['date']])
+
+        df_grouped = df.groupby(['dt', col_map['symbol'], col_map['direction']]).agg({
+            'size_c': 'sum', 'fee_c': 'sum', 'pnl_c': 'sum', 'price_c': 'mean'
+        }).reset_index().sort_values(by='dt', ascending=True)
+
+        trades_to_import = []
+        open_positions = {}
+
         for _, row in df_grouped.iterrows():
-            sym = row['Kontrakty terminowe']; dir_str = str(row['Kierunek']); size = row['size_clean']; price = row['price_clean']; fee = row['fee_clean']; pnl_g = row['pnl_gross']; d_str = row['Czas'].strftime('%Y-%m-%d %H:%M:%S')
-            if sym not in open_positions: open_positions[sym] = []
-            if 'Otw' in dir_str: open_positions[sym].append({'size': size, 'price': price, 'fee': fee, 'date': d_str})
-            elif 'Zamk' in dir_str:
-                qty = size; entry_cost = 0; entry_fee = 0; exec_qty = 0; e_times = []
-                while qty > 0.0000001 and open_positions[sym]:
-                    op = open_positions[sym][0]; avail = op['size']; e_times.append(pd.to_datetime(op['date']))
-                    if avail > qty:
-                        cons = qty; u_fee = op['fee']/avail; entry_fee += u_fee*cons; open_positions[sym][0]['size'] -= cons; open_positions[sym][0]['fee'] -= (u_fee*cons)
-                        entry_cost += cons*op['price']; exec_qty += cons; qty = 0
-                    else:
-                        cons = avail; entry_cost += cons*op['price']; entry_fee += op['fee']; exec_qty += cons; qty -= cons; open_positions[sym].pop(0)
-                if exec_qty > 0:
-                    avg_ep = entry_cost/exec_qty; tot_fee = fee + entry_fee; net_pnl = pnl_g - tot_fee
-                    is_long = 'Długi' in dir_str or 'Long' in dir_str
-                    f_entry = min(e_times).strftime('%Y-%m-%d %H:%M:%S') if e_times else d_str
-                    trades_to_import.append({'date': d_str, 'entry_date': f_entry, 'symbol': sym, 'direction': 'Long' if is_long else 'Short', 'setup': 'Import', 'entry_price': avg_ep, 'exit_price': price, 'stop_loss': 0.0, 'position_size': exec_qty, 'fees': tot_fee, 'notes': 'Auto', 'pnl': net_pnl, 'r_multiple': 0.0})
+            sym = row[col_map['symbol']]
+            dir_str = str(row[col_map['direction']])
+            size = row['size_c']; price = row['price_c']; fee = row['fee_c']; pnl = row['pnl_c']
+            d_str = row['dt'].strftime('%Y-%m-%d %H:%M:%S')
+
+            is_open = 'Otw' in dir_str or 'Open' in dir_str
+            is_close = 'Zamk' in dir_str or 'Close' in dir_str
+            is_long = 'Dług' in dir_str or 'Long' in dir_str
+            
+            if is_open:
+                if sym not in open_positions: open_positions[sym] = []
+                open_positions[sym].append({'size': size, 'price': price, 'fee': fee, 'date': d_str})
+            
+            elif is_close:
+                direction = 'Long' if is_long else 'Short'
+                remaining_qty = size
+                entry_cost = 0; entry_fee = 0; exec_qty = 0; entry_times = []
+
+                if sym in open_positions:
+                    while remaining_qty > 0.0000001 and open_positions[sym]:
+                        op = open_positions[sym][0]; avail = op['size']
+                        chunk = min(remaining_qty, avail)
+                        chunk_fee = op['fee'] * (chunk / avail) if avail > 0 else 0
+                        entry_fee += chunk_fee; entry_cost += chunk * op['price']
+                        exec_qty += chunk; remaining_qty -= chunk; entry_times.append(op['date'])
+                        open_positions[sym][0]['size'] -= chunk; open_positions[sym][0]['fee'] -= chunk_fee
+                        if open_positions[sym][0]['size'] <= 0.0000001: open_positions[sym].pop(0)
+
+                if remaining_qty > 0.0000001:
+                    ratio = remaining_qty / size; orphan_pnl = pnl * ratio 
+                    calc_entry_price = 0
+                    if direction == 'Long': calc_entry_price = price - (orphan_pnl / remaining_qty)
+                    else: calc_entry_price = (orphan_pnl / remaining_qty) + price
+                    entry_cost += remaining_qty * calc_entry_price; exec_qty += remaining_qty; entry_times.append(d_str) 
+                
+                avg_entry_price = entry_cost / exec_qty if exec_qty > 0 else 0
+                total_trade_fee = fee + entry_fee
+                net_pnl = pnl - total_trade_fee
+                final_entry_date = min(entry_times) if entry_times else d_str
+
+                trades_to_import.append({
+                    'date': d_str, 'entry_date': final_entry_date, 'symbol': sym, 'direction': direction,
+                    'setup': 'Import CSV', 'entry_price': avg_entry_price, 'exit_price': price,
+                    'stop_loss': 0.0, 'position_size': exec_qty, 'fees': total_trade_fee,
+                    'notes': 'Auto-Import', 'pnl': net_pnl, 'r_multiple': 0.0
+                })
+
         return pd.DataFrame(trades_to_import)
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Błąd parsowania CSV: {e}")
+        return pd.DataFrame()
 
 # --- 5. APLIKACJA GŁÓWNA ---
 def main():
-    # Pobranie danych na początku
     df = get_trades()
     
     with st.sidebar:
@@ -451,7 +544,7 @@ def main():
                     ch = alt.Chart(m).mark_bar().encode(x='ym', y='pnl', color=alt.Color('col', scale=None)).properties(height=350)
                     st.altair_chart(ch, use_container_width=True)
 
-    # --- KALKULATOR (NOWY) ---
+    # --- KALKULATOR ---
     elif menu == "🧮 Kalkulator":
         st.title("KALKULATOR POZYCJI")
         c1, c2 = st.columns([1, 1])
@@ -540,6 +633,7 @@ def main():
             if mode == "Miesiąc (Dni)":
                 now = datetime.now()
                 c_m, _ = st.columns([1,3])
+                # FIX: Użyj datetime.now().month jako default, chyba że brak danych
                 sel_m = c_m.selectbox("Miesiąc", range(1,13), index=now.month-1, format_func=lambda x: POLISH_MONTHS[x])
                 render_calendar_grid(df, sel_yr, sel_m)
             else:
@@ -584,8 +678,6 @@ def main():
                         n=0
                         for _,r in imp.iterrows(): 
                             data_to_add = r.to_dict()
-                            # USUNIĘTE: Błędne ponowne formatowanie daty
-                            
                             if add_trade_to_gsheet(data_to_add, current_df): n+=1
                         
                         if n>0: 
