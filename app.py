@@ -25,7 +25,6 @@ st.markdown("""
         }
         .stApp { background-color: var(--bg-dark); color: var(--text-main); }
         
-        /* Sidebar fix */
         section[data-testid="stSidebar"] { background-color: #010409; border-right: 1px solid var(--border); }
         [data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child { display: none !important; }
         [data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"] > label {
@@ -43,20 +42,17 @@ st.markdown("""
             border-left: 3px solid var(--accent); color: white; font-weight: 600; filter: grayscale(0%) opacity(1);
         }
 
-        /* Karty */
         .custom-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 15px; text-align: center; height: 100%; transition: transform 0.2s; }
         .custom-card:hover { transform: translateY(-3px); border-color: var(--accent); }
         .card-title { color: var(--text-sub); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
         .card-val { font-size: 1.5rem; font-weight: 800; font-family: 'Courier New', monospace; margin-bottom: 4px; }
         .val-up { color: var(--neon-green); } .val-down { color: var(--neon-red); }
         
-        /* Tabela transakcji */
         .trade-table-container { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 0.85rem; margin-top: 10px; }
         .trade-table-header { display: grid; grid-template-columns: 0.9fr 0.9fr 0.7fr 0.8fr 0.8fr 1fr 1fr 0.9fr 1fr 0.7fr; padding: 12px 10px; background-color: rgba(48, 54, 61, 0.3); color: var(--text-sub); font-weight: 700; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); }
         .trade-table-row { display: grid; grid-template-columns: 0.9fr 0.9fr 0.7fr 0.8fr 0.8fr 1fr 1fr 0.9fr 1fr 0.7fr; padding: 10px 10px; border-bottom: 1px solid var(--border); align-items: center; transition: background-color 0.1s; }
         .trade-table-row:hover { background-color: rgba(48, 54, 61, 0.2); }
         
-        /* Badges */
         .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; text-align: center; min-width: 60px; }
         .badge-long { background-color: var(--badge-long-bg); color: var(--badge-long-text); border: 1px solid rgba(46, 160, 67, 0.3); }
         .badge-short { background-color: var(--badge-short-bg); color: var(--badge-short-text); border: 1px solid rgba(218, 54, 51, 0.3); }
@@ -65,7 +61,6 @@ st.markdown("""
         .col-pnl { font-family: 'Courier New', monospace; font-weight: 800; display: flex; align-items: center; gap: 4px; }
         .pnl-green { color: var(--neon-green); } .pnl-red { color: var(--neon-red); }
         
-        /* Kalendarz */
         .calendar-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 10px; }
         .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 10px; }
         .grid-header { text-align: center; font-size: 0.7rem; color: var(--text-sub); padding-bottom: 5px; font-weight: bold; text-transform: uppercase; }
@@ -75,7 +70,6 @@ st.markdown("""
         .day-val { font-size: 0.9rem; font-weight: 800; font-family: 'Courier New', monospace; text-align: right; }
         .week-summary { background-color: rgba(31, 111, 235, 0.1); border: 1px solid rgba(31, 111, 235, 0.3); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
 
-        /* Wizualizacja pozycji */
         .visual-bar-container { height: 300px; width: 60px; background-color: #0d1117; border: 1px solid var(--border); border-radius: 4px; position: relative; display: flex; flex-direction: column; margin: 0 auto; }
         .visual-segment { width: 100%; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; position: relative; }
         .visual-profit { background-color: var(--neon-green); opacity: 0.2; border: 1px solid var(--neon-green); }
@@ -87,15 +81,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. LOGIKA I BAZA DANYCH (INTEGRACJA GOOGLE SHEETS) ---
+# --- 2. LOGIKA I BAZA DANYCH ---
 POLISH_MONTHS = {1: 'Styczeń', 2: 'Luty', 3: 'Marzec', 4: 'Kwiecień', 5: 'Maj', 6: 'Czerwiec', 7: 'Lipiec', 8: 'Sierpień', 9: 'Wrzesień', 10: 'Październik', 11: 'Listopad', 12: 'Grudzień'}
 
-# --- FUNKCJA DO POŁĄCZENIA Z GOOGLE SHEETS ---
+# --- UWIERZYTELNIANIE ---
 @st.cache_resource(ttl=3600) 
 def get_sheets_client():
     try:
         creds_json = dict(st.secrets["gcp_service_account"])
-        # Naprawa formatu klucza
         if "private_key" in creds_json:
             creds_json["private_key"] = creds_json["private_key"].replace("\\n", "\n")
 
@@ -106,7 +99,7 @@ def get_sheets_client():
         st.error(f"❌ Szczegóły błędu technicznego: {e}")
         return None
 
-# --- FUNKCJA ODCZYTU DANYCH (FIX NUMERYCZNY) ---
+# --- ODCZYT DANYCH (FIX DATY SERYJNEJ + LICZBY) ---
 @st.cache_data(ttl=30) 
 def get_trades_from_gsheet():
     client = get_sheets_client()
@@ -116,7 +109,7 @@ def get_trades_from_gsheet():
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1') 
         
-        # 1. FIX: Pobierz UNFORMATTED_VALUE (dostajemy surowe liczby float od Google, nawet jak w arkuszu są przecinki)
+        # Pobieramy surowe dane (liczby jako float, daty jako serial number)
         data = sheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(data)
         
@@ -124,15 +117,13 @@ def get_trades_from_gsheet():
             empty_cols = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             return pd.DataFrame(columns=empty_cols)
         
-        # 2. FIX: Pancerne czyszczenie liczb (na wypadek gdyby Google jednak zwróciło stringi)
+        # 1. Pancerne czyszczenie liczb
         numeric_cols = ['entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'pnl', 'r_multiple']
         
         def robust_convert(x):
             if isinstance(x, (int, float)): return float(x)
             if isinstance(x, str):
-                # Zamiana przecinka na kropkę, usunięcie spacji
                 x = x.replace(',', '.').replace(' ', '')
-                # Usunięcie symboli walut jeśli się zaplątały
                 x = re.sub(r'[^\d.-]', '', x)
                 try: return float(x)
                 except: return 0.0
@@ -142,11 +133,25 @@ def get_trades_from_gsheet():
             if col in df.columns:
                 df[col] = df[col].apply(robust_convert)
 
-        # Daty
-        df['date_dt'] = pd.to_datetime(df['date'], errors='coerce')
-        df['entry_dt'] = pd.to_datetime(df['entry_date'], errors='coerce')
+        # 2. FIX DATY: Konwersja Google Serial Date -> Python Datetime
+        def parse_gsheet_date(x):
+            # Jeśli to liczba seryjna (np. 45612.5)
+            if isinstance(x, (int, float)):
+                if x > 0:
+                    try:
+                        # Epoch dla Sheets to 30.12.1899
+                        return datetime(1899, 12, 30) + timedelta(days=x)
+                    except:
+                        return pd.NaT
+            # Jeśli to zwykły string
+            return pd.to_datetime(x, errors='coerce')
+
+        df['date_dt'] = df['date'].apply(parse_gsheet_date)
+        df['entry_dt'] = df['entry_date'].apply(parse_gsheet_date)
+        
         df = df.dropna(subset=['date_dt'])
         
+        # Reszta logiki
         df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
         df['year_int'] = df['date_dt'].dt.year.astype(int)
         df['month_int'] = df['date_dt'].dt.month.astype(int)
@@ -160,7 +165,7 @@ def get_trades_from_gsheet():
         st.error(f"Błąd odczytu Arkusza Google: {e}")
         return pd.DataFrame()
 
-# --- FUNKCJA ZAPISU DO GOOGLE SHEETS ---
+# --- ZAPIS DANYCH ---
 def add_trade_to_gsheet(data, current_df):
     client = get_sheets_client()
     if client is None: return False
@@ -169,17 +174,31 @@ def add_trade_to_gsheet(data, current_df):
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1')
     
-        # Sprawdź czy arkusz jest pusty (brak nagłówków) - jeśli tak, dodaj je
         if sheet.row_count < 1 or not sheet.row_values(1):
             cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             sheet.append_row(cols_to_keep)
 
-        is_duplicate = current_df[
-            (current_df['date'] == data['date']) &
+        # Sprawdzanie duplikatów przy imporcie
+        # Uwaga: Musimy uważać na typy danych, bo current_df ma teraz poprawne daty i floaty
+        is_duplicate = False
+        
+        # Konwersja daty wejściowej na timestamp dla porównania
+        input_date = pd.to_datetime(data['date'])
+        
+        # Filtrujemy tylko potencjalne duplikaty
+        potential = current_df[
             (current_df['symbol'] == data['symbol']) &
-            (current_df['direction'] == data['direction']) &
-            (abs(current_df['pnl'] - data['pnl']) < 0.01)
-        ].shape[0] > 0
+            (current_df['direction'] == data['direction'])
+        ]
+        
+        if not potential.empty:
+            for _, row in potential.iterrows():
+                # Porównaj datę (z tolerancją 1s) i PnL (z tolerancją 0.01)
+                time_diff = abs((row['date_dt'] - input_date).total_seconds())
+                pnl_diff = abs(row['pnl'] - float(data['pnl']))
+                if time_diff < 5 and pnl_diff < 0.1:
+                    is_duplicate = True
+                    break
         
         if is_duplicate: return False
 
@@ -188,9 +207,7 @@ def add_trade_to_gsheet(data, current_df):
         
         cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
         
-        # FIX: Wysyłamy czyste dane (floats), Google samo sformatuje wyświetlanie (przecinki)
         row_data = [data.get(col, '') for col in cols_to_keep]
-
         sheet.append_row(row_data, value_input_option='USER_ENTERED')
         
         st.cache_data.clear()
@@ -202,7 +219,7 @@ def add_trade_to_gsheet(data, current_df):
 get_trades = get_trades_from_gsheet
 add_trade_to_db = add_trade_to_gsheet
 
-# --- POZOSTAŁA LOGIKA ---
+# --- LOGIKA ---
 def calculate_streaks(df):
     if df.empty: return 0, 0
     df = df.sort_values('date_dt')
@@ -228,7 +245,7 @@ def get_date_range(preset):
     elif preset == "Obecny Rok": return today.replace(month=1, day=1), today
     return None, None
 
-# --- 3. RENDERERY HTML ---
+# --- RENDERERY ---
 def render_card(title, value, sub="", is_curr=True):
     val_num = float(value) if isinstance(value, (int, float)) else 0
     if isinstance(value, str):
@@ -336,7 +353,7 @@ def render_position_visualizer(entry, sl, tp, direction):
     html = f"""<div style="display:flex; justify-content:center; align-items:center; height:100%;"><div class="visual-bar-container"><div class="visual-segment {class_top}" style="height: {pct_top}%;"><div class="price-label" style="color: {color_top};">{label_top}</div></div><div class="entry-line" style="top: {pct_top}%;"><div class="price-label" style="color: white; top:-8px;">Entry: {entry}</div></div><div class="visual-segment {class_bottom}" style="height: {pct_bottom}%;"><div class="price-label" style="color: {color_bottom};">{label_bottom}</div></div></div></div>"""
     return html
 
-# --- PARSER CSV (REGEX + SIEROTY) ---
+# --- PARSER CSV ---
 def parse_exchange_csv_final(uploaded_file):
     try:
         df = pd.read_csv(uploaded_file)
