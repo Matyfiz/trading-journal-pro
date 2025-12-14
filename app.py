@@ -46,6 +46,10 @@ st.markdown("""
         .custom-card:hover { transform: translateY(-3px); border-color: var(--accent); }
         .card-title { color: var(--text-sub); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
         .card-val { font-size: 1.5rem; font-weight: 800; font-family: 'Courier New', monospace; margin-bottom: 4px; }
+        
+        /* FIX: Mniejsza czcionka w kafelkach kalendarza */
+        .tile-grid .card-val { font-size: 1.1rem !important; } 
+
         .val-up { color: var(--neon-green); } .val-down { color: var(--neon-red); }
         
         .trade-table-container { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 0.85rem; margin-top: 10px; }
@@ -99,7 +103,7 @@ def get_sheets_client():
         st.error(f"❌ Szczegóły błędu technicznego: {e}")
         return None
 
-# --- ODCZYT DANYCH (FIX DATY SERYJNEJ + LICZBY) ---
+# --- ODCZYT DANYCH ---
 @st.cache_data(ttl=30) 
 def get_trades_from_gsheet():
     client = get_sheets_client()
@@ -109,7 +113,6 @@ def get_trades_from_gsheet():
         spreadsheet_id = st.secrets["spreadsheet"]["id"]
         sheet = client.open_by_key(spreadsheet_id).worksheet('Arkusz1') 
         
-        # Pobieramy surowe dane (liczby jako float, daty jako serial number)
         data = sheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(data)
         
@@ -135,15 +138,12 @@ def get_trades_from_gsheet():
 
         # 2. FIX DATY: Konwersja Google Serial Date -> Python Datetime
         def parse_gsheet_date(x):
-            # Jeśli to liczba seryjna (np. 45612.5)
             if isinstance(x, (int, float)):
                 if x > 0:
                     try:
-                        # Epoch dla Sheets to 30.12.1899
                         return datetime(1899, 12, 30) + timedelta(days=x)
                     except:
                         return pd.NaT
-            # Jeśli to zwykły string
             return pd.to_datetime(x, errors='coerce')
 
         df['date_dt'] = df['date'].apply(parse_gsheet_date)
@@ -151,7 +151,6 @@ def get_trades_from_gsheet():
         
         df = df.dropna(subset=['date_dt'])
         
-        # Reszta logiki
         df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
         df['year_int'] = df['date_dt'].dt.year.astype(int)
         df['month_int'] = df['date_dt'].dt.month.astype(int)
@@ -178,14 +177,9 @@ def add_trade_to_gsheet(data, current_df):
             cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
             sheet.append_row(cols_to_keep)
 
-        # Sprawdzanie duplikatów przy imporcie
-        # Uwaga: Musimy uważać na typy danych, bo current_df ma teraz poprawne daty i floaty
         is_duplicate = False
-        
-        # Konwersja daty wejściowej na timestamp dla porównania
         input_date = pd.to_datetime(data['date'])
         
-        # Filtrujemy tylko potencjalne duplikaty
         potential = current_df[
             (current_df['symbol'] == data['symbol']) &
             (current_df['direction'] == data['direction'])
@@ -193,7 +187,6 @@ def add_trade_to_gsheet(data, current_df):
         
         if not potential.empty:
             for _, row in potential.iterrows():
-                # Porównaj datę (z tolerancją 1s) i PnL (z tolerancją 0.01)
                 time_diff = abs((row['date_dt'] - input_date).total_seconds())
                 pnl_diff = abs(row['pnl'] - float(data['pnl']))
                 if time_diff < 5 and pnl_diff < 0.1:
@@ -264,9 +257,12 @@ def render_card(title, value, sub="", is_curr=True):
 def render_day_tile(day, pnl, count):
     if day == 0: return '<div class="day-card" style="border:none; background:transparent"></div>'
     cls = "val-up" if pnl > 0 else "val-down" if pnl < 0 else "val-neutral"
-    pnl_s = f"{pnl:+.0f}" if count > 0 else "-"
-    cnt_s = f"{int(count)}" if count > 0 else ""
-    return f'<div class="day-card"><div class="day-num">{day}</div><div class="day-val {cls}">{pnl_s}</div><div style="font-size:0.7rem; color:#666; text-align:center;">{cnt_s}</div></div>'
+    
+    # FIX: Dodanie $ i trd
+    pnl_s = f"{pnl:+.0f}$" if count > 0 else "-"
+    cnt_s = f"{int(count)} trd" if count > 0 else ""
+    
+    return f'<div class="day-card"><div class="day-num">{day}</div><div class="day-val {cls}">{pnl_s}</div><div style="font-size:0.6rem; color:#666; text-align:center;">{cnt_s}</div></div>'
 
 def render_calendar_grid(df, year, month):
     cal = calendar.monthcalendar(year, month)
@@ -556,8 +552,23 @@ def main():
                 df_s = df_f.sort_values('date_dt')
                 if metric_type == "Krzywa Kapitału":
                     df_s['cum'] = df_s['pnl'].cumsum()
-                    ch = alt.Chart(df_s).mark_area(color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#2ea043', offset=0), alt.GradientStop(color='rgba(46, 160, 67, 0)', offset=1)], x1=1, x2=1, y1=1, y2=0), line={'color':'#2ea043'}).encode(x='date_dt', y='cum').properties(height=350)
-                    st.altair_chart(ch, use_container_width=True)
+                    # FIX: Skopiowana logika kolorów z Dashboardu
+                    min_y = df_s['cum'].min(); max_y = df_s['cum'].max()
+                    area_stops = []; line_stops = []
+                    if min_y >= 0:
+                        area_stops = [alt.GradientStop(color='rgba(46, 160, 67, 0.1)', offset=0), alt.GradientStop(color='rgba(46, 160, 67, 0.5)', offset=1)]
+                        line_stops = [alt.GradientStop(color='#2ea043', offset=0), alt.GradientStop(color='#2ea043', offset=1)]
+                    elif max_y <= 0:
+                        area_stops = [alt.GradientStop(color='rgba(218, 54, 51, 0.5)', offset=0), alt.GradientStop(color='rgba(218, 54, 51, 0.1)', offset=1)]
+                        line_stops = [alt.GradientStop(color='#da3633', offset=0), alt.GradientStop(color='#da3633', offset=1)]
+                    else:
+                        zero_r = abs(min_y) / (max_y - min_y)
+                        area_stops = [alt.GradientStop(color='rgba(218, 54, 51, 0.5)', offset=0), alt.GradientStop(color='rgba(218, 54, 51, 0.1)', offset=zero_r), alt.GradientStop(color='rgba(46, 160, 67, 0.1)', offset=zero_r), alt.GradientStop(color='rgba(46, 160, 67, 0.5)', offset=1)]
+                        line_stops = [alt.GradientStop(color='#da3633', offset=0), alt.GradientStop(color='#da3633', offset=zero_r), alt.GradientStop(color='#2ea043', offset=zero_r), alt.GradientStop(color='#2ea043', offset=1)]
+                    
+                    ch = alt.Chart(df_s).mark_area(color=alt.Gradient(gradient='linear', stops=area_stops, x1=1, x2=1, y1=1, y2=0), line=False).encode(x='date_dt', y='cum').properties(height=350)
+                    ch_line = alt.Chart(df_s).mark_line(color=alt.Gradient(gradient='linear', stops=line_stops, x1=1, x2=1, y1=1, y2=0)).encode(x='date_dt', y='cum')
+                    st.altair_chart((ch + ch_line), use_container_width=True)
                 elif metric_type == "Drawdown":
                     df_s['cum'] = df_s['pnl'].cumsum(); df_s['peak'] = df_s['cum'].cummax(); df_s['dd'] = df_s['cum'] - df_s['peak']
                     ch = alt.Chart(df_s).mark_area(color='#da3633', opacity=0.6).encode(x='date_dt', y='dd').properties(height=350)
