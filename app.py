@@ -4,6 +4,7 @@ import calendar
 import time
 import os
 import re
+import numpy as np  # <--- WAŻNY NOWY IMPORT
 from datetime import datetime, date, timedelta
 import altair as alt
 
@@ -49,9 +50,9 @@ st.markdown("""
         
         /* FIX: Skalowanie tekstu w kafelkach kalendarza */
         .tile-grid .card-val { 
-            font-size: 1.0rem !important; /* Mniejsza czcionka bazowa */
-            white-space: nowrap;          /* ZAKAZ ZAWIJANIA TEKSTU */
-            overflow: visible;            /* Nie ucinaj, niech wystaje ewentualnie */
+            font-size: 1.0rem !important; 
+            white-space: nowrap;          
+            overflow: visible;            
         } 
 
         .val-up { color: var(--neon-green); } .val-down { color: var(--neon-red); }
@@ -168,7 +169,7 @@ def get_trades_from_gsheet():
         st.error(f"Błąd odczytu Arkusza Google: {e}")
         return pd.DataFrame()
 
-# --- ZAPIS DANYCH ---
+# --- ZAPIS DANYCH (FIX JSON SERIALIZABLE) ---
 def add_trade_to_gsheet(data, current_df):
     client = get_sheets_client()
     if client is None: return False
@@ -199,12 +200,21 @@ def add_trade_to_gsheet(data, current_df):
         
         if is_duplicate: return False
 
-        max_id = current_df['id'].max() if not current_df.empty and 'id' in current_df.columns else 0
+        # FIX: Konwersja numpy.int64 -> python int
+        max_val = current_df['id'].max()
+        max_id = int(max_val) if pd.notna(max_val) and max_val != '' else 0
         data['id'] = max_id + 1
         
         cols_to_keep = ['id', 'date', 'entry_date', 'symbol', 'direction', 'setup', 'entry_price', 'exit_price', 'stop_loss', 'position_size', 'fees', 'notes', 'pnl', 'r_multiple']
         
-        row_data = [data.get(col, '') for col in cols_to_keep]
+        row_data = []
+        for col in cols_to_keep:
+            val = data.get(col, '')
+            # FIX: Zabezpieczenie przed typami NumPy (int64 is not JSON serializable)
+            if hasattr(val, 'item'): 
+                val = val.item()
+            row_data.append(val)
+
         sheet.append_row(row_data, value_input_option='USER_ENTERED')
         
         st.cache_data.clear()
